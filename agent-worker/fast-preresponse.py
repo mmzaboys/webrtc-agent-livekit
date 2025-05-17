@@ -30,8 +30,8 @@ class PreResponseAgent(Agent):
         self._fast_llm_prompt = llm.ChatMessage(
             role="system",
             content=[
-                "Generate a short instant response to the user's message with 5 to 10 words.",
-                "Do not answer the questions directly. Examples:, let me think about that, "
+                "Generate a very short instant response to the user's message with 5 to 10 words.",
+                "Do not answer the questions directly. Examples: OK, Hm..., let me think about that, "
                 "wait a moment, that's a good question, etc.",
             ],
         )
