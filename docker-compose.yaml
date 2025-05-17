@@ -55,22 +55,22 @@ services:
       - ./agents-playground:/usr/src/app
       - /usr/src/app/node_modules   # Avoid overwriting node_modules
     env_file:
-      - ./agents-playground.yml  # Load the environment variables from the YAML file
+      - ./agents-playground.yaml  # Load the environment variables from the YAML file
     ports:
       - "3000:3000"
     depends_on:
       - livekit
     networks:
       - lknetwork
-  agent-worker:
-    build:
-      context: ./agent-worker
-      dockerfile: Dockerfile
-    volumes:
-      - ./agent-worker:/app
-    env_file:
-      - ./agent-worker.yml
-    depends_on:
-      - livekit
-    networks:
-      - lknetwork
+  # agent-worker:
+  #   build:
+  #     context: ./agent-worker
+  #     dockerfile: Dockerfile
+  #   volumes:
+  #     - ./agent-worker:/app
+  #   env_file:
+  #     - ./agent-worker.yaml
+  #   depends_on:
+  #     - livekit
+  #   networks:
+  #     - lknetwork
