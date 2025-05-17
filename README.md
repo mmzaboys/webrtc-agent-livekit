@@ -1,1 +1,44 @@
 # webrtc-agent-livekit
+
+Build real-time voice AI agents powered by [LiveKit Agent](https://github.com/livekit/agents), Small Language Models (SLMs), and WebRTC.
+
+This project is a quickstart template to run locally or with AWS integrations. It showcases how to combine WebRTC, LiveKit’s Agent framework, and open-source tools like Whisper and Llama to prototype low-latency voice assistants for real-time applications.
+
+## 🧠 What’s Inside
+
+- 🌐 **WebRTC + LiveKit**: Real-time media transport with WebRTC powered by LiveKit.
+- 🤖 **LiveKit Agent**: Modular plugin-based framework for voice AI agents.
+- 🗣️ **STT + TTS Support**: Plug in Whisper, Deepgram, ElevenLabs, or others.
+- 💬 **LLM Integration**: Use local LLaMA models or connect to AWS/ OpenAI / Anthropic APIs.
+- 🧪 **Local Dev**: Run everything locally with Docker Compose or Python virtual env.
+
+---
+
+## 🚀 Quick Start (Local)
+
+1. Clone:
+```bash
+# Clone the repo
+git clone https://github.com/your-org/webrtc-agent-livekit.git
+cd webrtc-agent-livekit
+```
+
+2. Install dependencies docker and docker compose
+
+3. If you want to also run the example frontend, copy and rename the `.env.example` file to `.env.local` and fill in the necessary environment variables under the examples/agents-playground demo.
+
+```
+LIVEKIT_API_KEY=<your API KEY>
+LIVEKIT_API_SECRET=<Your API Secret>
+NEXT_PUBLIC_LIVEKIT_URL=wss://<Your Cloud URL>
+```
+
+4. Run docker-compose:
+
+```bash
+  docker compose up --build
+```
+
+5. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+6. Connect to a room

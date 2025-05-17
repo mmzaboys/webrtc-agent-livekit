@@ -1,0 +1,76 @@
+networks:
+  lknetwork:
+  
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    restart: unless-stopped
+    # network_mode: "host"
+    ports:
+    - "7880:7880"
+    - "7881:7881"
+    - "7882:7882"
+    - "50100-50200:50100-50200"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
+      - ./certs:/etc/certs
+    depends_on:
+      - redis
+    networks:
+      - lknetwork
+  redis:
+    image: redis:7-alpine
+    command: redis-server /etc/redis.conf
+    restart: unless-stopped
+    # network_mode: "host"
+    # ports:
+    #   - 6379:6379
+    volumes:
+      - ./redis.conf:/etc/redis.conf
+    networks:
+      - lknetwork
+  # egress:
+  #   image: livekit/egress:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     - EGRESS_CONFIG_FILE=/etc/egress.yaml
+  #   network_mode: "host"
+  #   volumes:
+  #     - ./egress.yaml:/etc/egress.yaml
+  #   cap_add:
+  #     - CAP_SYS_ADMIN
+  # ingress:
+  #   image: livekit/ingress:latest
+  #   restart: unless-stopped
+  #   environment:
+  #     - INGRESS_CONFIG_FILE=/etc/ingress.yaml
+  #   network_mode: "host"
+  #   volumes:
+  #     - ./ingress.yaml:/etc/ingress.yaml
+  agents-playground:
+    build:
+      context: ./agents-playground
+    volumes:
+      - ./agents-playground:/usr/src/app
+      - /usr/src/app/node_modules   # Avoid overwriting node_modules
+    env_file:
+      - ./agents-playground.yml  # Load the environment variables from the YAML file
+    ports:
+      - "3000:3000"
+    depends_on:
+      - livekit
+    networks:
+      - lknetwork
+  agent-worker:
+    build:
+      context: ./agent-worker
+      dockerfile: Dockerfile
+    volumes:
+      - ./agent-worker:/app
+    env_file:
+      - ./agent-worker.yml
+    depends_on:
+      - livekit
+    networks:
+      - lknetwork
