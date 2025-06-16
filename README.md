@@ -19,7 +19,7 @@ This project is a quickstart template to run locally or with AWS integrations. I
 1. Clone:
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/webrtc-agent-livekit.git
+git clone https://github.com/agonza1/webrtc-agent-livekit.git
 cd webrtc-agent-livekit
 ```
 
@@ -38,7 +38,21 @@ NEXT_PUBLIC_LIVEKIT_URL=ws://localhost:7880 #wss://<Your Cloud URL>
 ```bash
   docker compose up --build
 ```
+Make sure that at least the services "agent-playground", "agent-worker", "livekit" and "redis" in the docker-compose are uncommented and the envs are updated.
 
 5. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 6. Connect to a room
+
+## Monitoring
+
+The solution is build using Prometheus and grafana. The end to end flow is:
+Agent worker → writes metrics to shared temp folder → agent_metrics exposes them → Prometheus scrapes them → Grafana displays them.
+
+[Agent Worker](./agent-worker/) live metrics are exposed on port 9100 and can be accessed at:
+```
+http://localhost:9100/metrics
+```
+
+Grafana is available in [http://localhost:3001](http://localhost:3001) with default user/password: admin/admin
+A default dashboard is setup to visualize basic real time voice agents information.
