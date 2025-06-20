@@ -58,6 +58,7 @@ logger.info("Initialized multiprocess collector with shared registry")
 
 # Define Prometheus metrics with multiprocess mode
 LLM_LATENCY = Gauge('livekit_llm_duration_ms', 'LLM latency in milliseconds', ['model', 'agent_type'], registry=registry)
+LLM_LATENCY_SMALL = Gauge('livekit_llm_small_duration_ms', 'Fast LLM latency in milliseconds', ['model', 'agent_type'], registry=registry)
 STT_LATENCY = Gauge('livekit_stt_duration_ms', 'Speech-to-text latency in milliseconds', ['provider', 'agent_type'], registry=registry)
 TTS_LATENCY = Gauge('livekit_tts_duration_ms', 'Text-to-speech latency in milliseconds', ['provider', 'agent_type'], registry=registry)
 EOU_LATENCY = Gauge('livekit_eou_delay_ms', 'End-of-utterance delay in milliseconds', ['agent_type'], registry=registry)
@@ -75,30 +76,14 @@ ACTIVE_CONVERSATIONS = Gauge('livekit_active_conversations', 'Number of active c
 LLM_COST = Gauge('livekit_llm_cost_total', 'Total LLM cost in USD', ['model'], registry=registry)
 STT_COST = Gauge('livekit_stt_cost_total', 'Total STT cost in USD', ['provider'], registry=registry)
 TTS_COST = Gauge('livekit_tts_cost_total', 'Total TTS cost in USD', ['provider'], registry=registry)
-
 # Configure multiprocess mode for usage counters
 for metric in [LLM_TOKENS, STT_DURATION, TTS_CHARS, TOTAL_TOKENS, CONVERSATION_TURNS]:
     metric._multiprocess_mode = 'livesum'
     logger.debug(f"Configured multiprocess mode for counter: {metric._name}")
-
 # Configure cost metrics to use liveall mode for single aggregated value
 for metric in [LLM_COST, STT_COST, TTS_COST]:
     metric._multiprocess_mode = 'liveall'
     logger.debug(f"Configured multiprocess mode for cost metric: {metric._name}")
-
-def log_metric_update(metric_name, old_value, new_value, labels=None):
-    """Helper function to log metric updates with detailed information."""
-    label_str = f" with labels {labels}" if labels else ""
-    logger.info(
-        f"Metric update: {metric_name}{label_str}",
-        extra={
-            "metric_name": metric_name,
-            "old_value": old_value,
-            "new_value": new_value,
-            "labels": labels,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    )
 
 # Initialize metrics with default values
 def initialize_metrics():
@@ -107,6 +92,7 @@ def initialize_metrics():
         
         # Initialize latency metrics with default labels
         LLM_LATENCY.labels(model='llama-3.3-70b', agent_type=AGENT_TYPE).set(0)
+        LLM_LATENCY_SMALL.labels(model='llama-3.1-8b-instant', agent_type=AGENT_TYPE).set(0)
         STT_LATENCY.labels(provider='deepgram', agent_type=AGENT_TYPE).set(0)
         TTS_LATENCY.labels(provider='openai', agent_type=AGENT_TYPE).set(0)
         EOU_LATENCY.labels(agent_type=AGENT_TYPE).set(0)
@@ -171,9 +157,28 @@ class PreResponseAgent(Agent):
 
         async def _fast_llm_reply() -> AsyncIterable[str]:
             filler_response: str = ""
+            start_time = time.time()
             async for chunk in self._fast_llm.chat(chat_ctx=fast_llm_ctx).to_str_iterable():
                 filler_response += chunk
                 yield chunk
+            end_time = time.time()
+            duration_ms = (end_time - start_time) * 1000
+            
+            # Update the fast LLM latency metric
+            try:
+                LLM_LATENCY_SMALL.labels(model='llama-3.1-8b-instant', agent_type=AGENT_TYPE).set(duration_ms)
+                logger.info(
+                    "Fast LLM response time",
+                    extra={
+                        "duration_ms": duration_ms,
+                        "model": "llama-3.1-8b-instant",
+                        "response": filler_response,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error updating fast LLM latency metric: {e}")
+            
             fast_llm_fut.set_result(filler_response)
 
         # We don't need to add this quick filler in the context
@@ -185,9 +190,6 @@ class PreResponseAgent(Agent):
 
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
-
-    # Initialize metrics at startup
-    # initialize_metrics()
 
     # Store component latencies for total latency calculation
     current_turn_metrics = {
@@ -380,7 +382,7 @@ async def entrypoint(ctx: JobContext):
         elif isinstance(ev.metrics, STTMetrics):
             logger.debug(f"Processing STT metrics: {ev.metrics}")
             if hasattr(ev.metrics, 'duration'):
-                duration_ms = ev.metrics.duration * 1000  # Convert to ms
+                duration_ms = ev.metrics.duration * 1000  # Convert to ms but will be 0 for streaming STT. This latency is counted in the end_of_utterance_delay
                 STT_LATENCY.labels(provider='deepgram', agent_type=AGENT_TYPE).set(duration_ms)
                 logger.debug(f"Observed STT latency: {duration_ms}ms")
                 logger.info(
@@ -503,7 +505,3 @@ if __name__ == "__main__":
         cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
     except Exception as e:
         logger.error(f"Error starting application: {e}")
-        raise
-    finally:
-        # Ensure cleanup happens even if there's an error
-        cleanup_multiproc_dir()
