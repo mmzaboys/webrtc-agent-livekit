@@ -45,42 +45,50 @@ python fast-preresponse.py
 
 ## Architecture
 
+The agent-worker system is designed for real-time voice AI with fast pre-response and comprehensive metrics. The updated metrics delivery flow is as follows:
+
+- **Agent Worker(s)**: Each worker collects metrics using the Prometheus Python client in multiprocess mode, writing to a shared directory (`/tmp/prometheus_multiproc`).
+- **Agent-Metrics Service**: Aggregates all metrics from the shared directory and exposes them at `/metrics` via a Prometheus HTTP server.
+- **Prometheus**: Scrapes metrics from the agent-metrics service.
+- **Grafana**: Visualizes all metrics by querying Prometheus.
+
 ```mermaid
-graph TD
-    subgraph "Agent Worker"
-        A[Entrypoint] --> B[AgentSession]
-        B <--> C[PreResponseAgent]
-        
-        subgraph "Metrics Collection"
-            D[Metrics Collector] --> E[Prometheus Metrics]
-            D --> F[Usage Summary]
-        end
-        
+flowchart TD
+    subgraph "Agent Worker(s)"
+        A1["Entrypoint"] --> A2["AgentSession"]
+        A2 <--> A3["PreResponseAgent"]
         subgraph "Components"
-            G[STT/Deepgram] --> B
-            H[TTS/OpenAI] --> B
-            I[VAD/Silero] --> B
-            J[LLM/Groq] --> B
+            A4["STT/Deepgram"] --> A2
+            A5["TTS/OpenAI"] --> A2
+            A6["VAD/Silero"] --> A2
+            A7["LLM/Groq"] --> A2
         end
         subgraph "Fast Pre-Response"
-            K[Fast LLM] --> L[Instant Response]
+            A8["Fast LLM"] --> A9["Instant Response"]
         end
-        subgraph "Metrics Flow"
-            O[LLM Metrics] --> D
-            P[STT Metrics] --> D
-            Q[TTS Metrics] --> D
-            R[VAD Metrics] --> D
-            S[EOU Metrics] --> D
+        subgraph "Metrics Collection"
+            A10["Prometheus Client (multiproc)"]
         end
+        A2 -->|"Metrics (shared dir)"| A10
     end
-    U[User] <-->|WebRTC audio| M
+    
+    subgraph "Metrics Aggregation"
+        B1["agent-metrics service (Prometheus HTTP server)"]
+        A10 -->|"/tmp/prometheus_multiproc"| B1
+    end
+    
     subgraph "External Services"
-        M[LiveKit Room] <--> B
-        N[Prometheus Server] --> E
+        C1["LiveKit Room"] <--> A2
+        C2["Prometheus Server"]
+        C3["Grafana"]
     end
+    
+    B1 -- "/metrics" --> C2
+    C2 -- "Query" --> C3
+    C2 -.->|"Scrape"| B1
+    
+    U["User"] <-->|"WebRTC audio"| C1
 ```
-
-![LiveKit Agent Architecture Diagram](assets/ArchitectureDiagram.png)
 
 ## Components
 
