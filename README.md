@@ -25,7 +25,7 @@ cd webrtc-agent-livekit
 
 2. Install dependencies docker and docker compose
 
-3. If you want to also run the example frontend, copy and rename the `.env.example` file to `.env.local` and fill in the necessary environment variables. You can also update the YML files to configure the different services. For example, agents-playground.yml:
+3. If you want to also run the example frontend, copy and rename the [`.env.example`](./agents-playground/.env.example) file to `.env.local` and fill in the necessary environment variables. You can also update the YML files to configure the different services. For example, agents-playground.yml:
 
 ```
 LIVEKIT_API_KEY=<your API KEY> #change it in livekit.yaml

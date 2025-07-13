@@ -34,6 +34,7 @@ from prometheus_client import (
     multiprocess
 )
 from livekit.agents.metrics import LLMMetrics, STTMetrics, TTSMetrics, VADMetrics, EOUMetrics
+from openai.types.beta.realtime.session import TurnDetection
 
 # Configure logging
 logging.basicConfig(
@@ -69,7 +70,7 @@ LLM_TOKENS = Counter('livekit_llm_tokens_total', 'Total LLM tokens processed', [
 STT_DURATION = Counter('livekit_stt_duration_seconds_total', 'Total STT audio duration in seconds', ['provider'], registry=registry)
 TTS_CHARS = Counter('livekit_tts_chars_total', 'Total TTS characters processed', ['provider'], registry=registry)
 TOTAL_TOKENS = Counter('livekit_total_tokens_total', 'Total tokens processed', registry=registry)
-CONVERSATION_TURNS = Counter('livekit_conversation_turns_total', 'Number of conversation turns', registry=registry)
+CONVERSATION_TURNS = Counter('livekit_conversation_turns_total', 'Number of conversation turns', ['agent_type', 'room'], registry=registry)
 ACTIVE_CONVERSATIONS = Gauge('livekit_active_conversations', 'Number of active conversations', ['agent_type'], multiprocess_mode='liveall', registry=registry)
 
 # Cost metrics with multiprocess mode
@@ -104,7 +105,6 @@ def initialize_metrics():
         STT_DURATION.labels(provider='deepgram').inc(0)
         TTS_CHARS.labels(provider='openai').inc(0)
         TOTAL_TOKENS.inc(0)
-        CONVERSATION_TURNS.inc(0)
         
         # Initialize cost metrics
         LLM_COST.labels(model='llama-3.3-70b').inc(0)
@@ -131,17 +131,38 @@ def initialize_metrics():
 class PreResponseAgent(Agent):
     def __init__(self):
         super().__init__(
-            instructions="You are a helpful assistant",
+            instructions="You are a helpful assistant. Always respond concisely in less than 4 sentences.",
+            # llm=openai.realtime.RealtimeModel(
+            #     turn_detection=TurnDetection(
+            #         type="server_vad",
+            #         threshold=0.5,
+            #         prefix_padding_ms=200,
+            #         silence_duration_ms=200,
+            #         create_response=True,
+            #         interrupt_response=True,
+            #     )
+            # ),
             llm=groq.LLM(model="llama-3.3-70b-versatile"),
-            tts=openai.TTS(voice="nova")
+            # llm=openai.LLM(model="gpt-4o"),
+            # tts=openai.TTS(voice="nova")
+            # tts=groq.TTS(
+            #     model="playai-tts",
+            #     voice="Arista-PlayAI"
+            # )
+            # tts = deepgram.TTS(
+            #     model="aura-2-thalia-en",
+            # )
         )
-        self._fast_llm = groq.LLM(model="llama-3.1-8b-instant")
+        self._fast_llm = groq.LLM(
+            model="llama-3.1-8b-instant", 
+            temperature=0.1)
+        # self._fast_llm = openai.LLM(model="gpt-4o-mini")
         self._fast_llm_prompt = llm.ChatMessage(
             role="system",
             content=[
-                "Generate a very short instant response to the user's message with 5 to 10 words.",
-                "Do not answer the questions directly. Examples: OK, Hm..., let me think about that, "
-                "wait a moment, that's a good question, etc.",
+                "Reply with 2–4 words only.",
+                "Never fully answer questions. Another agent will answer for you just after.",
+                "Examples: OK., Sure., One sec., Let me check.",
             ],
         )
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage):
@@ -158,48 +179,78 @@ class PreResponseAgent(Agent):
         async def _fast_llm_reply() -> AsyncIterable[str]:
             filler_response: str = ""
             start_time = time.time()
+            ttfb_recorded = False
             async for chunk in self._fast_llm.chat(chat_ctx=fast_llm_ctx).to_str_iterable():
+                if not ttfb_recorded:
+                    ttfb = (time.time() - start_time) * 1000
+                    try:
+                        LLM_LATENCY_SMALL.labels(model='llama-3.1-8b-instant', agent_type=AGENT_TYPE).set(ttfb)
+                        logger.info(
+                            "Fast LLM TTFB",
+                            extra={
+                                "ttfb_ms": ttfb,
+                                "model": "llama-3.1-8b-instant",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }
+                        )
+                    except Exception as e:
+                        logger.error(f"Error updating fast LLM TTFB metric: {e}")
+                    ttfb_recorded = True
                 filler_response += chunk
                 yield chunk
+            # Optionally, you can still log the total duration for debugging, but don't set the metric
             end_time = time.time()
             duration_ms = (end_time - start_time) * 1000
-            
-            # Update the fast LLM latency metric
-            try:
-                LLM_LATENCY_SMALL.labels(model='llama-3.1-8b-instant', agent_type=AGENT_TYPE).set(duration_ms)
-                logger.info(
-                    "Fast LLM response time",
-                    extra={
-                        "duration_ms": duration_ms,
-                        "model": "llama-3.1-8b-instant",
-                        "response": filler_response,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                )
-            except Exception as e:
-                logger.error(f"Error updating fast LLM latency metric: {e}")
-            
+            logger.info(
+                "Fast LLM response total duration",
+                extra={
+                    "duration_ms": duration_ms,
+                    "model": "llama-3.1-8b-instant",
+                    "response": filler_response,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
             fast_llm_fut.set_result(filler_response)
 
         # We don't need to add this quick filler in the context
         self.session.say(_fast_llm_reply(), add_to_chat_ctx=False)
+        # self.session.say('yeah', add_to_chat_ctx=False)
 
         filler_response = await fast_llm_fut
         logger.info(f"Fast response: {filler_response}")
         turn_ctx.add_message(role="assistant", content=filler_response, interrupted=False)
+        # turn_ctx.add_message(role="assistant", content='yeah', interrupted=False)
 
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
+    # Extract room from ctx (fallback to 'unknown' if not present)
+    room = getattr(ctx, 'room', None) or 'unknown'
+
     # Store component latencies for total latency calculation
     current_turn_metrics = {
+        'turn_id': None,  # Unique ID for each turn
         'eou_delay': None,
         'llm_ttft': None,
-        'tts_ttfb': None
+        'tts_ttfb': None,
+        'room': room
     }
+    turn_id_counter = 0  # Simple incrementing counter for turn IDs
+
+    def start_new_turn():
+        nonlocal turn_id_counter
+        turn_id_counter += 1
+        current_turn_metrics['turn_id'] = turn_id_counter
+        current_turn_metrics['eou_delay'] = None
+        current_turn_metrics['llm_ttft'] = None
+        current_turn_metrics['tts_ttfb'] = None
+        # Use room as a label
+        CONVERSATION_TURNS.labels(agent_type=AGENT_TYPE, room=room).inc()
+        logger.debug(f"Started new turn with turn_id={turn_id_counter}, room={room}")
+        return turn_id_counter
 
     def calculate_total_latency():
-        if all(v is not None for v in current_turn_metrics.values()):
+        if all(current_turn_metrics[k] is not None for k in ['eou_delay', 'llm_ttft', 'tts_ttfb']):
             # Total latency calculation breakdown (time it takes for the agent to respond to a user's utterance):
             # 1. eou_delay: Time from user stops speaking to end-of-utterance detection. This includes transcription_delay
             # 2. llm_ttft: Time to first token from LLM (Time To First Token)
@@ -231,7 +282,8 @@ async def entrypoint(ctx: JobContext):
                     extra={
                         "previous_value_ms": prev_value,
                         "current_value_ms": total_ms,
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "turn_id": current_turn_metrics['turn_id']
                     }
                 )
             except Exception as e:
@@ -244,18 +296,25 @@ async def entrypoint(ctx: JobContext):
                     "eou_delay_ms": int(eou_ms),
                     "llm_ttft_ms": int(llm_ms),
                     "tts_ttfb_ms": int(tts_ms),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "turn_id": current_turn_metrics['turn_id']
                 }
             )
             # Reset metrics for next turn
-            for k in current_turn_metrics:
-                current_turn_metrics[k] = None
+            start_new_turn()
 
     session = AgentSession(
         turn_detection=EnglishModel(),
         stt=deepgram.STT(),
-        tts=openai.TTS(voice="alloy"),
-        vad=silero.VAD.load(),
+        # tts=openai.TTS(voice="alloy"),
+        tts=groq.TTS(
+            model="playai-tts",
+            voice="Arista-PlayAI"
+        ),
+        vad=silero.VAD.load(
+            min_silence_duration=0.2,
+            activation_threshold=0.3, # more sensitive (detects speech faster)
+        )
     )
     
     usage_collector = metrics.UsageCollector()
@@ -265,6 +324,23 @@ async def entrypoint(ctx: JobContext):
 
     @session.on("metrics_collected")
     def handle_metrics(ev: MetricsCollectedEvent):
+        # Determine the turn_id for this metric event
+        # If the event has a turn/session ID, use it; otherwise, use a new turn for EOU metrics (start of user turn)
+        event_turn_id = getattr(ev.metrics, 'turn_id', None)
+        if isinstance(ev.metrics, EOUMetrics):
+            # Start a new turn for each EOU metric (end of user utterance)
+            event_turn_id = start_new_turn()
+        elif current_turn_metrics['turn_id'] is None:
+            # If no turn is active, start one
+            event_turn_id = start_new_turn()
+        else:
+            event_turn_id = current_turn_metrics['turn_id']
+
+        # If the event's turn_id does not match the current, reset state
+        if event_turn_id != current_turn_metrics['turn_id']:
+            logger.warning(f"Metric event turn_id {event_turn_id} does not match current turn_id {current_turn_metrics['turn_id']}. Resetting state.")
+            start_new_turn()
+
         # Log all metrics
         metrics.log_metrics(ev.metrics)
         
@@ -289,25 +365,25 @@ async def entrypoint(ctx: JobContext):
                     new_prompt_tokens = current_summary.llm_prompt_tokens
                     if new_prompt_tokens > current_prompt_tokens:
                         LLM_TOKENS.labels(type='prompt', model='llama-3.3-70b').inc(new_prompt_tokens - current_prompt_tokens)
-                        logger.info(f"Updated LLM prompt tokens: {current_prompt_tokens} -> {new_prompt_tokens}")
+                        # logger.info(f"Updated LLM prompt tokens: {current_prompt_tokens} -> {new_prompt_tokens}")
                 
                 if hasattr(current_summary, 'llm_completion_tokens'):
                     new_completion_tokens = current_summary.llm_completion_tokens
                     if new_completion_tokens > current_completion_tokens:
                         LLM_TOKENS.labels(type='completion', model='llama-3.3-70b').inc(new_completion_tokens - current_completion_tokens)
-                        logger.info(f"Updated LLM completion tokens: {current_completion_tokens} -> {new_completion_tokens}")
+                        # logger.info(f"Updated LLM completion tokens: {current_completion_tokens} -> {new_completion_tokens}")
                 
                 if hasattr(current_summary, 'stt_audio_duration'):
                     new_stt_duration = current_summary.stt_audio_duration
                     if new_stt_duration > current_stt_duration:
                         STT_DURATION.labels(provider='deepgram').inc(new_stt_duration - current_stt_duration)
-                        logger.info(f"Updated STT duration: {current_stt_duration} -> {new_stt_duration}")
+                        # logger.info(f"Updated STT duration: {current_stt_duration} -> {new_stt_duration}")
                 
                 if hasattr(current_summary, 'tts_characters_count'):
                     new_tts_chars = current_summary.tts_characters_count
                     if new_tts_chars > current_tts_chars:
                         TTS_CHARS.labels(provider='openai').inc(new_tts_chars - current_tts_chars)
-                        logger.info(f"Updated TTS characters: {current_tts_chars} -> {new_tts_chars}")
+                        # logger.info(f"Updated TTS characters: {current_tts_chars} -> {new_tts_chars}")
                 
                 # Calculate costs from current summary values
                 llm_cost = (getattr(current_summary, 'llm_prompt_tokens', 0) * 0.00001 +  # $0.01 per 1K input tokens
@@ -362,6 +438,7 @@ async def entrypoint(ctx: JobContext):
         if isinstance(ev.metrics, LLMMetrics):
             logger.debug(f"Processing LLM metrics: {ev.metrics}")
             if hasattr(ev.metrics, 'duration'):
+                # The amount of time (seconds) it took for the LLM to generate the entire completion.
                 duration_ms = ev.metrics.duration * 1000  # Convert to ms
                 LLM_LATENCY.labels(model='llama-3.3-70b', agent_type=AGENT_TYPE).set(duration_ms)
                 logger.debug(f"Observed LLM latency: {duration_ms}ms")
@@ -375,7 +452,8 @@ async def entrypoint(ctx: JobContext):
                     extra={
                         "latency_ms": getattr(ev.metrics, 'duration', 0) * 1000,
                         "total_tokens": ev.metrics.total_tokens,
-                        "timestamp": datetime.utcnow().isoformat()
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "turn_id": current_turn_metrics['turn_id']
                     }
                 )
         
@@ -397,29 +475,32 @@ async def entrypoint(ctx: JobContext):
             logger.debug(f"Processing TTS metrics: {ev.metrics}")
             if hasattr(ev.metrics, 'duration'):
                 duration_ms = ev.metrics.duration * 1000  # Convert to ms
-                TTS_LATENCY.labels(provider='openai', agent_type=AGENT_TYPE).set(duration_ms)
+                # TTS_LATENCY.labels(provider='openai', agent_type=AGENT_TYPE).set(duration_ms)
+                # The amount of time (seconds) it took for the TTS model to generate the entire audio output.
                 logger.debug(f"Observed TTS latency: {duration_ms}ms")
             if hasattr(ev.metrics, 'ttfb'):
                 current_turn_metrics['tts_ttfb'] = ev.metrics.ttfb
+                TTS_LATENCY.labels(provider='openai', agent_type=AGENT_TYPE).set(current_turn_metrics['tts_ttfb']*1000)
                 calculate_total_latency()
             logger.info(
                 "TTS Metrics",
                 extra={
                     "latency_ms": getattr(ev.metrics, 'duration', 0) * 1000,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "turn_id": current_turn_metrics['turn_id']
                 }
             )
         
-        elif isinstance(ev.metrics, VADMetrics):
-            logger.debug(f"Processing VAD metrics: {ev.metrics}")
-            # Log VAD metrics without assuming specific attributes
-            logger.info(
-                "VAD Metrics",
-                extra={
-                    "metrics": str(ev.metrics),
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
+        # elif isinstance(ev.metrics, VADMetrics):
+        #     logger.debug(f"Processing VAD metrics: {ev.metrics}")
+        #     # Log VAD metrics without assuming specific attributes
+        #     logger.info(
+        #         "VAD Metrics",
+        #         extra={
+        #             "metrics": str(ev.metrics),
+        #             "timestamp": datetime.utcnow().isoformat()
+        #         }
+        #     )
         
         elif isinstance(ev.metrics, EOUMetrics):
             logger.debug(f"Processing EOU metrics: {ev.metrics}")
@@ -438,7 +519,8 @@ async def entrypoint(ctx: JobContext):
                     "transcription_delay": getattr(ev.metrics, 'transcription_delay', 0),
                     "on_user_turn_completed_delay": getattr(ev.metrics, 'on_user_turn_completed_delay', 0),
                     "speech_id": getattr(ev.metrics, 'speech_id', ''),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "turn_id": current_turn_metrics['turn_id']
                 }
             )
         else:
@@ -477,14 +559,14 @@ async def entrypoint(ctx: JobContext):
                 }
             }
             
-            logger.info(
-                "Session Summary",
-                extra={
-                    "usage_summary": json.dumps(summary_dict),
-                    "active_conversations": ACTIVE_CONVERSATIONS.labels(agent_type=AGENT_TYPE)._value.get(),
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
+            # logger.info(
+            #     "Session Summary",
+            #     extra={
+            #         "usage_summary": json.dumps(summary_dict),
+            #         "active_conversations": ACTIVE_CONVERSATIONS.labels(agent_type=AGENT_TYPE)._value.get(),
+            #         "timestamp": datetime.utcnow().isoformat()
+            #     }
+            # )
         except Exception as e:
             logger.error(f"Error getting usage summary: {e}")
         finally:

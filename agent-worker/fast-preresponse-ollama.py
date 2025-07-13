@@ -78,7 +78,7 @@ async def entrypoint(ctx: JobContext):
 
     session = AgentSession(
         stt=deepgram.STT(),
-        tts=openai.TTS(),
+        tts=openai.TTS(base_url="http://kokoro:8880/v1", model="kokoro", voice="af_nova"), #lightweight open source tts
         vad=silero.VAD.load(),
     )
 

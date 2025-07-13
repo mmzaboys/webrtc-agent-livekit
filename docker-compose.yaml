@@ -75,6 +75,12 @@ services:
         - livekit
       networks:
         - lknetwork
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    ports:
+      - "8880:8880"
+    networks:
+      - lknetwork
   agent-metrics:
     build: ./agent-metrics
     ports:
