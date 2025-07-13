@@ -56,3 +56,13 @@ http://localhost:9100/metrics
 
 Grafana is available in [http://localhost:3001](http://localhost:3001) with default user/password: admin/admin
 A default dashboard is setup to visualize basic real time voice agents information.
+
+## 🙏 Credits
+
+This project is built on top of amazing open-source tools and services:
+
+- **[LiveKit](https://livekit.io/) and [LiveKit Agents](https://github.com/livekit/agents)** - WebRTC Framework for building voice AI agents
+- **[Ollama](https://ollama.ai)** - Local LLM inference engine
+- **[Llama](https://llama.meta.com/)** - Open-source large language models by Meta
+- **[Kokoro TTS](https://huggingface.co/hexgrad/Kokoro-82M)** - Open-source text-to-speech model
+- **[Prometheus](https://prometheus.io/) and [Grafana](https://grafana.com/)** - Metrics collection, monitoring and visualization
