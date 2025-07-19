@@ -156,7 +156,6 @@ class PreResponseAgent(Agent):
         self._fast_llm = groq.LLM(
             model="llama-3.1-8b-instant", 
             temperature=0.1)
-        # self._fast_llm = openai.LLM(model="gpt-4o-mini")
         self._fast_llm_prompt = llm.ChatMessage(
             role="system",
             content=[
@@ -440,10 +439,10 @@ async def entrypoint(ctx: JobContext):
             if hasattr(ev.metrics, 'duration'):
                 # The amount of time (seconds) it took for the LLM to generate the entire completion.
                 duration_ms = ev.metrics.duration * 1000  # Convert to ms
-                LLM_LATENCY.labels(model='llama-3.3-70b', agent_type=AGENT_TYPE).set(duration_ms)
-                logger.debug(f"Observed LLM latency: {duration_ms}ms")
+                logger.debug(f"Observed LLM response generation latency: {duration_ms}ms")
             if hasattr(ev.metrics, 'ttft'):
                 current_turn_metrics['llm_ttft'] = ev.metrics.ttft
+                LLM_LATENCY.labels(model='llama-3.3-70b', agent_type=AGENT_TYPE).set(current_turn_metrics['llm_ttft']*1000)
                 calculate_total_latency()
             if hasattr(ev.metrics, 'total_tokens'):
                 TOTAL_TOKENS.inc(ev.metrics.total_tokens)
@@ -462,7 +461,7 @@ async def entrypoint(ctx: JobContext):
             if hasattr(ev.metrics, 'duration'):
                 duration_ms = ev.metrics.duration * 1000  # Convert to ms but will be 0 for streaming STT. This latency is counted in the end_of_utterance_delay
                 STT_LATENCY.labels(provider='deepgram', agent_type=AGENT_TYPE).set(duration_ms)
-                logger.debug(f"Observed STT latency: {duration_ms}ms")
+                logger.debug(f"Observed STT latencyto generate transcript: {duration_ms}ms")
                 logger.info(
                     "STT Metrics",
                     extra={

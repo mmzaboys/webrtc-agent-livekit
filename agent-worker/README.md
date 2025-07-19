@@ -6,7 +6,7 @@ A real-time voice agent implementation using LiveKit, featuring fast pre-respons
 This example uses Llama 3.1 8B and 70B. Initial quick response comes from 8B to optimize latency, and then the 70B takes over to handle the complex task.
 - fast-preresponse-ollama.py
 
-Same idea but using open source services like Llama through [Ollama](https://ollama.ai) and [Kokoro TTS](https://huggingface.co/hexgrad/Kokoro-82M) instead of Groq
+Same idea but using open source services that you can run locally: Llama through [Ollama](https://ollama.ai), Whisper through [speaches](https://github.com/speaches-ai/speaches) and [Kokoro TTS](https://huggingface.co/hexgrad/Kokoro-82M) instead of Groq, OpenAI or others.
 
 ## Run with Docker
 

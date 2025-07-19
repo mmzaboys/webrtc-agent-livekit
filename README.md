@@ -2,7 +2,7 @@
 
 Build real-time voice AI agents powered by [LiveKit Agent](https://github.com/livekit/agents), Small Language Models (SLMs), and WebRTC.
 
-This project is a quickstart template to run locally or with AWS integrations. It showcases how to combine WebRTC, LiveKit’s Agent framework, and open-source tools like Whisper and Llama to prototype low-latency voice assistants for real-time applications.
+This project is a quickstart template to run locally or with 3rd party integrations. It showcases how to combine WebRTC, LiveKit’s Agent framework, and open-source tools like Whisper and Llama to prototype low-latency voice assistants for real-time applications.
 
 ## 🧠 What’s Inside
 
@@ -11,6 +11,12 @@ This project is a quickstart template to run locally or with AWS integrations. I
 - 🗣️ **STT + TTS Support**: Plug in Whisper, Deepgram, ElevenLabs, or others.
 - 💬 **LLM Integration**: Use local LLaMA models or connect to AWS/ OpenAI / Anthropic APIs.
 - 🧪 **Local Dev**: Run everything locally with Docker Compose or Python virtual env.
+
+THERE ARE 2 IMPLEMENTATIONS OF THE AI AGENT:
+- [fast-preresponse.py](./agent-worker/fast-preresponse.py) using 3rd party services and the complete 
+- [fast-preresponse-ollama.py](./agent-worker/fast-preresponse-ollama.py) which is only using open source souftware and can run locally without internet.
+
+Just update [Dockerfile]./agent-worker/Dockerfile) to use one or another. More info [here](./agent-worker/README.md).
 
 ---
 
