@@ -16,7 +16,7 @@ THERE ARE 2 IMPLEMENTATIONS OF THE AI AGENT:
 - [fast-preresponse.py](./agent-worker/fast-preresponse.py) using 3rd party services and the complete metrics capture in place
 - [fast-preresponse-ollama.py](./agent-worker/fast-preresponse-ollama.py) which is only using open source souftware and can run locally without internet.
 
-Just update [Dockerfile]./agent-worker/Dockerfile) to use one or another. More info [here](./agent-worker/README.md).
+Just update [Dockerfile](./agent-worker/Dockerfile) to use one or another. More info [here](./agent-worker/README.md).
 
 ---
 
