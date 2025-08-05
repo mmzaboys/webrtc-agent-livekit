@@ -15,7 +15,7 @@ from livekit.agents import (
     MetricsCollectedEvent
 )
 from livekit.agents.llm.chat_context import ChatContext, ChatMessage
-from livekit.plugins import deepgram, openai, silero, groq
+from livekit.plugins import deepgram, openai, silero
 
 logger = logging.getLogger("pre-reseponse-agent")
 

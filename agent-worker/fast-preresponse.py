@@ -9,6 +9,7 @@ import signal
 import sys
 from collections.abc import AsyncIterable
 from datetime import datetime
+import uuid
 
 from dotenv import load_dotenv
 
@@ -24,7 +25,7 @@ from livekit.agents import (
 )
 from livekit.agents.llm.chat_context import ChatContext, ChatMessage
 from livekit.plugins.turn_detector.english import EnglishModel
-from livekit.plugins import deepgram, groq, openai, silero
+from livekit.plugins import deepgram, groq, openai, silero, aws
 from prometheus_client import (
     start_http_server, 
     Summary, 
@@ -131,7 +132,7 @@ def initialize_metrics():
 class PreResponseAgent(Agent):
     def __init__(self):
         super().__init__(
-            instructions="You are a helpful assistant. Always respond concisely in less than 4 sentences.",
+            instructions= "You are a helpful assistant. Always respond concisely in less than 4 sentences.",      
             # llm=openai.realtime.RealtimeModel(
             #     turn_detection=TurnDetection(
             #         type="server_vad",
@@ -143,6 +144,10 @@ class PreResponseAgent(Agent):
             #     )
             # ),
             llm=groq.LLM(model="llama-3.3-70b-versatile"),
+            # llm=aws.LLM(
+            #     model="anthropic.claude-3-haiku-20240307-v1:0",
+            #     temperature=0.3,
+            # ),
             # llm=openai.LLM(model="gpt-4o"),
             # tts=openai.TTS(voice="nova")
             # tts=groq.TTS(
@@ -161,7 +166,7 @@ class PreResponseAgent(Agent):
             content=[
                 "Reply with 2–4 words only.",
                 "Never fully answer questions. Another agent will answer for you just after.",
-                "Examples: OK., Sure., One sec., Let me check.",
+                "Examples: OK., Sure., One sec., Let me check."
             ],
         )
     async def on_user_turn_completed(self, turn_ctx: ChatContext, new_message: ChatMessage):
@@ -303,13 +308,22 @@ async def entrypoint(ctx: JobContext):
             start_new_turn()
 
     session = AgentSession(
-        turn_detection=EnglishModel(),
+        # turn_detection=EnglishModel(),
         stt=deepgram.STT(),
+        # stt = aws.STT(
+        #     session_id=str(uuid.uuid4()),
+        #     language="en-US",
+        # ),
         # tts=openai.TTS(voice="alloy"),
         tts=groq.TTS(
             model="playai-tts",
             voice="Arista-PlayAI"
         ),
+        # tts=aws.TTS(
+        #     voice="Ruth",
+        #     speech_engine="generative",
+        #     language="en-US",
+        # ),
         vad=silero.VAD.load(
             min_silence_duration=0.2,
             activation_threshold=0.3, # more sensitive (detects speech faster)
